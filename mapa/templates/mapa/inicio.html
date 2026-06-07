@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Accesible - UTEM</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { 
+            background-color: #f3f6fc;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+            transition: all 0.3s ease;
+        }
+        
+        /* Tema Verde Institucional (Teal) */
+        .navbar-custom { 
+            background: linear-gradient(135deg, #00766c, #004d40) !important; 
+            border-bottom: none !important; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1); 
+        }
+        .nav-link { color: #e0f2f1 !important; font-weight: 500; font-size: 0.95rem; margin: 0 10px; cursor: pointer;}
+        .nav-link.active, .nav-link:hover { color: #ffffff !important; }
+        
+        .btn-outline-light { border-color: rgba(255,255,255,0.5); }
+        .btn-admin { background-color: #00b4d8; color: white; border: none; text-decoration: none; }
+        .btn-admin:hover { background-color: #0096b4; color: white;}
+        
+        /* Panel Izquierdo Minimalista */
+        .card-buscar {
+            border-radius: 12px; border: 1px solid #e0e6ed;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03); background-color: #ffffff;
+        }
+        
+        .sugerencia-item {
+            border: 1px solid #cbd5e1; border-radius: 8px;
+            padding: 12px 15px; margin-bottom: 10px;
+            color: #334155; font-weight: 600; font-size: 0.9rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02); transition: all 0.2s;
+            cursor: pointer; display: block;
+        }
+        .sugerencia-item:hover { border-color: #00766c; transform: translateY(-2px); background-color: #f8fafc !important;}
+        
+        .panel-lugares { max-height: 400px; overflow-y: auto; scrollbar-width: thin; padding-right: 5px; }
+        
+        /* Mapa y Leyenda */
+        #mapa { 
+            height: 550px; border-radius: 12px 12px 0 0; 
+            border: 1px solid #e0e6ed; border-bottom: none; z-index: 1; 
+        }
+        .leyenda-mapa {
+            background-color: #ffffff; border: 1px solid #e0e6ed; border-radius: 0 0 12px 12px;
+            padding: 12px 20px; display: flex; justify-content: center; flex-wrap: wrap; gap: 25px;
+            font-size: 0.85rem; font-weight: 600; color: #475569;
+        }
+        .caja-ruta { background-color: #ffffff; border-radius: 12px; border: 1px solid #e0e6ed; }
+
+        /* MODO ALTO CONTRASTE */
+        body.alto-contraste { background-color: #121212 !important; color: #ffff00 !important; }
+        body.alto-contraste .card-buscar, body.alto-contraste .caja-ruta, 
+        body.alto-contraste .leyenda-mapa, body.alto-contraste .sugerencia-item,
+        body.alto-contraste .modal-content, body.alto-contraste .leaflet-popup-content-wrapper {
+            background-color: #1e1e1e !important; border-color: #ffff00 !important; color: #ffff00 !important;
+        }
+        body.alto-contraste .text-dark, body.alto-contraste .text-muted, body.alto-contraste h5 { color: #ffff00 !important; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm mb-4 py-2">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand d-flex align-items-center gap-3" href="{% url 'inicio' %}">
+                <img src="/media/ubicaciones/medialogo.jpg" alt="Logo UTEM" style="height: 42px; filter: brightness(0) invert(1);">
+                <div class="lh-1 border-start border-light ps-3 border-opacity-50">
+                    <div class="fw-bold fs-5 text-white">Campus Accesible</div>
+                    <small style="font-size: 0.7rem; color: #b2dfdb;">Sede Macul</small>
+                </div>
+            </a>
+            
+            <ul class="navbar-nav mx-auto d-none d-lg-flex">
+                <li class="nav-item"><a class="nav-link active" onclick="location.reload()">Mapa y buscar</a></li>
+                <li class="nav-item"><a class="nav-link" data-bs-toggle="modal" data-bs-target="#modalReporte">Reportar Barrera</a></li>
+            </ul>
+            
+            <div class="d-flex align-items-center gap-2">
+                <span class="text-white small me-2 d-none d-md-block">Administrador</span>
+                <a href="{% url 'admin:index' %}" class="btn btn-admin btn-sm fw-bold rounded-pill px-3">ADMIN</a>
+                <button id="btn-gps" class="btn btn-outline-light btn-sm rounded-pill px-3" title="Mi Ubicación"><i class="bi bi-geo-alt-fill"></i> GPS</button>
+                <button id="btn-contraste" class="btn btn-outline-light btn-sm rounded-pill px-3">Contraste</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container-fluid px-4 mb-5">
+        <div class="row g-4">
+            
+            <div class="col-md-3">
+                <div class="card-buscar p-4 h-100">
+                    <h5 class="fw-bold text-dark mb-3">Buscar</h5>
+                    <input type="text" id="buscador" class="form-control mb-3 shadow-sm" placeholder="Ej: Biblioteca, M7, Ascensor, Falla...">
+                    <button id="btn-limpiar" class="btn btn-outline-dark fw-bold border-2 mb-4 rounded-pill px-4 w-100">Limpiar Búsqueda</button>
+                    
+                    <div id="contenedor-favoritos" style="display: none;">
+                        <p class="text-muted small mb-2 fw-semibold"><i class="bi bi-star-fill text-warning me-1"></i>Mis Destinos Frecuentes</p>
+                        <div class="panel-lugares mb-4" id="lista-favoritos" style="max-height: 180px;">
+                            </div>
+                    </div>
+
+                    <p class="text-muted small mb-2 fw-semibold">Sugerencias y Estado</p>
+                    <div class="panel-lugares" id="lista-sugerencias">
+                        {% for edificio in edificios %}
+                            <div class="sugerencia-item bg-white" onclick="centrarEdificio('{{ edificio.nombre }}')">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="fw-bold" style="color: #00766c;">{{ edificio.nombre }}</div>
+                                    <button class="btn btn-sm btn-link p-0 btn-fav" data-nombre="{{ edificio.nombre }}" onclick="toggleFavorito('{{ edificio.nombre }}', event)">
+                                        <i class="bi bi-star text-secondary fs-6"></i>
+                                    </button>
+                                </div>
+                                
+                                {% if edificio.puntos_accesibilidad.all %}
+                                    <div class="mt-2 pt-2 border-top border-light" style="font-size: 0.78rem; font-weight: 500;">
+                                        {% for punto in edificio.puntos_accesibilidad.all %}
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <span class="text-secondary"><i class="bi bi-chevron-right small text-muted"></i> {{ punto.get_tipo_display }}</span>
+                                                {% if punto.esta_disponible %}
+                                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill" style="font-weight: 600;">Operativo</span>
+                                                {% else %}
+                                                    <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 rounded-pill" style="font-weight: 600;">En Falla</span>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-9">
+                <div class="caja-ruta p-3 mb-3 d-flex gap-3 align-items-end shadow-sm flex-wrap">
+                    <div class="flex-grow-1">
+                        <label class="form-label small fw-bold text-muted mb-1">Punto de Partida</label>
+                        <select id="origen" class="form-select border-0 bg-light">
+                            <option value="">Selecciona origen...</option>
+                            {% for edificio in edificios %}
+                                {% if edificio.latitud %}
+                                    {% if 'acceso' not in edificio.tipo|lower and 'acceso' not in edificio.nombre|lower %}
+                                        <option value="{{ edificio.nombre }}|{{ edificio.latitud }}|{{ edificio.longitud }}">{{ edificio.nombre }}</option>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="flex-grow-1">
+                        <label class="form-label small fw-bold text-muted mb-1">Destino (Solo Edificios)</label>
+                        <select id="destino" class="form-select border-0 bg-light">
+                            <option value="">Selecciona destino...</option>
+                            {% for edificio in edificios %}
+                                {% if edificio.latitud %}
+                                    {% if 'entrada' not in edificio.tipo|lower and 'acceso' not in edificio.tipo|lower and 'entrada' not in edificio.nombre|lower and 'acceso' not in edificio.nombre|lower %}
+                                        <option value="{{ edificio.nombre }}|{{ edificio.latitud }}|{{ edificio.longitud }}">{{ edificio.nombre }}</option>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <button id="btn-ruta" class="btn fw-bold px-4 text-white shadow-sm" style="background-color: #00766c; border-radius: 8px;">
+                            Ver Ruta
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="mapa"></div>
+                
+                <div class="leyenda-mapa">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png" style="height: 24px;" alt="Pin Azul"> 
+                        Edificio (Azul)
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-gold.png" style="height: 24px;" alt="Pin Amarillo"> 
+                        Entrada (Amarillo)
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png" style="height: 16px;" alt="Pin Verde Pequeño"> 
+                        Acceso (Verde)
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-grey.png" style="height: 24px;" alt="Pin Gris"> 
+                        Zona Tranquila (Gris)
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="modal fade" id="modalReporte" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header border-0 pb-0">
+                    <h5 class="modal-title fw-bold" style="color: #00766c;"><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>Reportar Nueva Barrera</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-info small py-2">Tu reporte ayuda a mantener el mapa actualizado para todos.</div>
+                    <form method="POST" action="{% url 'reportar' %}">
+                        {% csrf_token %}
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small text-muted mb-1">Punto o Edificio</label>
+                               <select class="form-select bg-light border-0" name="lugar" required>
+                                    <option value="">Selecciona el lugar...</option>
+                                     {% for edificio in edificios %}
+                                        {% if edificio.puntos_accesibilidad.all %}
+                                             <option value="{{ edificio.nombre }}">{{ edificio.nombre }}</option>
+                                    {% endif %}
+                                         {% endfor %}
+                        </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small text-muted mb-1">Tipo de Barrera</label>
+                                <select class="form-select bg-light border-0" name="tipo_barrera" required>
+                                    <option value="Falla Ascensor">Falla Ascensor</option>
+                                    <option value="Rampa Bloqueada">Rampa Bloqueada</option>
+                                    <option value="Baño Accesible Clausurado">Baño Accesible Clausurado</option> 
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-bold small text-muted mb-1">Detalles Adicionales</label>
+                            <textarea class="form-control bg-light border-0" name="descripcion" rows="2" placeholder="Opcional: Describe brevemente el problema..."></textarea>
+                        </div>
+                        <div class="text-end mt-4">
+                            <button type="button" class="btn btn-light fw-bold px-4 me-2" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn fw-bold px-4 text-white" style="background-color: #00766c;">Enviar Reporte</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        window.speechSynthesis.getVoices();
+
+        var mapaCalle = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { maxZoom: 20 });
+        var mapaSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+
+        var map = L.map('mapa', { center: [-33.4658, -70.5978], zoom: 17, layers: [mapaCalle] });
+        L.control.layers({"Mapa": mapaCalle, "Satelite": mapaSatelite}).addTo(map);
+
+        function leerEnVozAlta(texto) {
+            window.speechSynthesis.cancel(); 
+            var locucion = new SpeechSynthesisUtterance(texto);
+            locucion.rate = 0.95; 
+            locucion.pitch = 1.15; 
+
+            var voces = window.speechSynthesis.getVoices();
+            var vozFemenina = null;
+
+            for (var i = 0; i < voces.length; i++) {
+                var nombre = voces[i].name.toLowerCase();
+                if (voces[i].lang.includes('es')) {
+                    if (nombre.includes('sabina') || nombre.includes('helena') || 
+                        nombre.includes('paulina') || nombre.includes('monica') || 
+                        nombre.includes('google español') || nombre.includes('female') ||
+                        nombre.includes('mujer')) {
+                        vozFemenina = voces[i];
+                        break;
+                    }
+                    if (!vozFemenina) { vozFemenina = voces[i]; }
+                }
+            }
+
+            if (vozFemenina) { locucion.voice = vozFemenina; } else { locucion.lang = 'es-CL'; }
+            window.speechSynthesis.speak(locucion);
+        }
+
+        var todosLosMarcadores = {};
+
+        {% for edificio in edificios %}
+            {% if edificio.latitud and edificio.longitud %}
+                var lat = parseFloat("{{ edificio.latitud }}".replace(',', '.').trim());
+                var lng = parseFloat("{{ edificio.longitud }}".replace(',', '.').trim());
+                
+                if (!isNaN(lat) && !isNaN(lng)) {
+                    var popupHtml = "<div class='text-center p-1' style='min-width: 250px;'>";
+                    
+                    {% if edificio.foto %}
+                        popupHtml += "<div class='mb-3 shadow-sm'><img src='{{ edificio.foto.url }}' style='width: 100%; height: 220px; object-fit: cover; border-radius: 8px; display: block;' alt='Foto de {{ edificio.nombre }}'></div>";
+                    {% endif %}
+                    
+                    popupHtml += "<div class='d-flex justify-content-between align-items-center mb-2'><h6 class='m-0 fw-bold' style='color: #00766c;'>{{ edificio.nombre }}</h6><button class='btn btn-sm btn-light border rounded-circle ms-2' onclick='leerEnVozAlta(\"Estás en {{ edificio.nombre }}\")'><i class='bi bi-volume-up-fill'></i></button></div>";
+                    
+                    var nombreUbicacion = "{{ edificio.nombre }}".toLowerCase().trim();
+                    var tipoUbicacion = "{{ edificio.tipo }}".toLowerCase().trim(); 
+                    var colorPin = 'blue'; var ancho = 25; var alto = 41;  
+                    
+                    if (nombreUbicacion.includes('entrada') || tipoUbicacion.includes('entrada')) { 
+                        colorPin = 'gold'; 
+                    } 
+                    else if (nombreUbicacion.includes('acceso') || tipoUbicacion.includes('acceso') || tipoUbicacion.includes('rampa')) { 
+                        colorPin = 'green'; 
+                        ancho = 18; alto = 29; 
+                    } 
+                    else if (tipoUbicacion.includes('banio') || tipoUbicacion.includes('baño')) { 
+                        colorPin = 'purple'; ancho = 22; alto = 36; 
+                    }
+                    else if (nombreUbicacion.includes('tranquila') || tipoUbicacion.includes('tranquila') || tipoUbicacion.includes('descanso')) { 
+                        colorPin = 'grey'; 
+                    }
+
+                    var icono = L.icon({ iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-' + colorPin + '.png', shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png', iconSize: [ancho, alto], iconAnchor: [ancho/2, alto], popupAnchor: [1, -alto + 5], shadowSize: [ancho, ancho] });
+
+                    var marcador = L.marker([lat, lng], {icon: icono}).addTo(map);
+                    marcador.bindPopup(popupHtml, { minWidth: 280, maxWidth: 350 });
+                    todosLosMarcadores["{{ edificio.nombre }}"] = marcador;
+                }
+            {% endif %}
+        {% endfor %}
+
+        // --- SISTEMA DE FAVORITOS (HU08) ---
+        let favoritos = JSON.parse(localStorage.getItem('favoritos_utem')) || [];
+
+        function toggleFavorito(nombre, event) {
+            event.stopPropagation(); 
+            if (favoritos.includes(nombre)) {
+                favoritos = favoritos.filter(f => f !== nombre); 
+            } else {
+                favoritos.push(nombre); 
+            }
+            localStorage.setItem('favoritos_utem', JSON.stringify(favoritos));
+            actualizarUIFavoritos();
+        }
+
+        function actualizarUIFavoritos() {
+            document.querySelectorAll('#lista-sugerencias .btn-fav').forEach(btn => {
+                let nombre = btn.getAttribute('data-nombre');
+                if (favoritos.includes(nombre)) {
+                    btn.innerHTML = '<i class="bi bi-star-fill text-warning fs-6"></i>';
+                } else {
+                    btn.innerHTML = '<i class="bi bi-star text-secondary fs-6"></i>';
+                }
+            });
+
+            const contenedorFavs = document.getElementById('contenedor-favoritos');
+            const listaFavs = document.getElementById('lista-favoritos');
+            
+            if (favoritos.length > 0) {
+                contenedorFavs.style.display = 'block';
+                listaFavs.innerHTML = '';
+                favoritos.forEach(fav => {
+                    listaFavs.innerHTML += `
+                        <div class="sugerencia-item bg-white" onclick="centrarEdificio('${fav}')">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="fw-bold" style="color: #00766c;">${fav}</div>
+                                <button class="btn btn-sm btn-link p-0" onclick="toggleFavorito('${fav}', event)">
+                                    <i class="bi bi-star-fill text-warning fs-6"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                });
+            } else {
+                contenedorFavs.style.display = 'none';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', actualizarUIFavoritos);
+
+        // --- BÚSQUEDA ---
+        document.getElementById('buscador').addEventListener('keyup', function(e) {
+            var texto = e.target.value.toLowerCase();
+            var items = document.querySelectorAll('.sugerencia-item');
+            items.forEach(function(item) {
+                if (item.innerText.toLowerCase().includes(texto)) { item.style.display = 'block'; } 
+                else { item.style.display = 'none'; }
+            });
+        });
+
+        document.getElementById('btn-limpiar').addEventListener('click', function() {
+            document.getElementById('buscador').value = '';
+            document.querySelectorAll('.sugerencia-item').forEach(i => i.style.display = 'block');
+            map.setView([-33.4658, -70.5978], 17);
+        });
+
+        function centrarEdificio(nombre) {
+            var m = todosLosMarcadores[nombre];
+            if (m) { map.setView(m.getLatLng(), 19); m.openPopup(); }
+        }
+
+        document.getElementById('btn-contraste').addEventListener('click', function() { document.body.classList.toggle('alto-contraste'); });
+        document.getElementById('btn-gps').addEventListener('click', function() { map.locate({setView: true, maxZoom: 18}); });
+
+        var lineaRuta = null;
+        document.getElementById('btn-ruta').addEventListener('click', function() {
+            var origenVal = document.getElementById('origen').value;
+            var destinoVal = document.getElementById('destino').value;
+            if (origenVal === "" || destinoVal === "") { alert("Por favor, selecciona origen y destino."); return; }
+
+            var datosOrigen = origenVal.split('|'); var datosDestino = destinoVal.split('|');
+            var nombreOrigen = datosOrigen[0].trim(); var nombreDestino = datosDestino[0].trim();
+            var latO = parseFloat(datosOrigen[1].replace(',', '.')); var lngO = parseFloat(datosOrigen[2].replace(',', '.'));
+            var latD = parseFloat(datosDestino[1].replace(',', '.')); var lngD = parseFloat(datosDestino[2].replace(',', '.'));
+            
+            var llaveRuta = nombreOrigen + "-" + nombreDestino;
+            
+            var caminosReales = {
+                "Entrada Principal (Av. José Pedro Alessandri)-M1 (Edificio)": {
+                    ruta: [[latO, lngO], [-33.465900, -70.598200], [latD, lngD]],
+                    voz: "Ingresa por Avenida Alessandri, avanza unos metros y encontrarás el Edificio M1."
+                },
+                "Entrada Principal (Av. José Pedro Alessandri)-M7 (Edificio)": {
+                    ruta: [[latO, lngO], [-33.465900, -70.598200], [-33.465850, -70.597400], [-33.465500, -70.597300], [latD, lngD]],
+                    voz: "Ingresa por Avenida Alessandri, avanza por el pasillo principal y dobla a la izquierda hacia el norte para llegar al M7."
+                },
+                "Entrada (Palmeras)-M1 (Edificio)": {
+                    ruta: [[latO, lngO], [-33.466550, -70.597500], [-33.466550, -70.598000], [latD, lngD]],
+                    voz: "Ingresa por calle Las Palmeras, avanza por el acceso principal y sigue las indicaciones hacia el Edificio M1."
+                },
+                "Entrada Principal (Av. José Pedro Alessandri)-Biblioteca": {
+                    ruta: [[latO, lngO], [-33.46634858686922, -70.5978717546891], [-33.465980513204414, -70.59785297922693], [-33.46595478155236, -70.59759951048764], [latD, lngD]],
+                    voz: "Desde el acceso por Alessandri, avanza por el patio central siguiendo el pasillo interior hasta llegar a la Biblioteca."
+                },
+                "Entrada (Palmeras)-Biblioteca": {
+                    ruta: [[latO, lngO], [-33.46654487277887, -70.5968158463531], [-33.4665279603488, -70.59703093573164], [-33.46630088970701, -70.59702017136686], [-33.46630210150885, -70.59786593113826], [-33.46598325341946, -70.59785654341626], [-33.465954165465334, -70.59761782682583], [latD, lngD]],
+                    voz: "Ingresando por Las Palmeras, recorre el pasillo interior atravesando el sector central del campus para llegar a la Biblioteca."
+                },
+               "M1 (Edificio)-M6 (Edificio)": {
+                ruta: [[latO, lngO],
+                 [-33.4661147503959, -70.59786267812653],
+                 [-33.466307177862305, -70.59786670143984],
+                 [-33.46631631782577, -70.59721493401075],
+                 [-33.46630382157266, -70.59694536267322],
+                 [-33.46630382157266, -70.59694536267322],
+                 [-33.46611251286261, -70.59691719948059],
+                 [latD, lngD]],
+                voz: "Avanza por el pasillo principal hasta llegar al edificio M6." 
+                }
+            }; 
+
+            var puntosADibujar = [];
+            var mensajeNarrador = "Trazando ruta accesible. Dirígete desde " + nombreOrigen + " hacia " + nombreDestino + ". Sigue la línea azul marcada en el mapa.";
+
+            if (caminosReales[llaveRuta]) {
+                puntosADibujar = caminosReales[llaveRuta].ruta;
+                mensajeNarrador = caminosReales[llaveRuta].voz;
+            } else {
+                puntosADibujar = [[latO, lngO], [latD, lngD]];
+            }
+
+            if (lineaRuta !== null) { map.removeLayer(lineaRuta); }
+            lineaRuta = L.polyline(puntosADibujar, { color: '#00766c', weight: 6, dashArray: '10, 10' }).addTo(map);
+            map.fitBounds(lineaRuta.getBounds(), {padding: [50, 50]});
+
+            leerEnVozAlta(mensajeNarrador);
+        });
+    </script>
+</body>
+</html>
